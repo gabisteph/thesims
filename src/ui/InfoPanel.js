@@ -7,7 +7,7 @@ export function createInfoPanel() {
         'info-panel';
 
     panel.innerHTML = `
-        <h2>TRELIÇA HOWE</h2>
+        <h2>Grupo The Smims</h2>
 
         <p>Montantes (Verticais)</p>
         <p>Diagonais (Compressão)</p>
