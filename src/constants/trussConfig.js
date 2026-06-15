@@ -1,7 +1,13 @@
 export const TRUSS_CONFIG = {
-    span: 20,
-    height: 4,
-    panels: 8,
-    barRadius: 0.08,
-    nodeRadius: 0.18
+
+    length: 16,
+
+    width: 5,
+
+    height: 5,
+
+    supportHeight: 2.8,
+
+    bucketHeight: -5
+
 };

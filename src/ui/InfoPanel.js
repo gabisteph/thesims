@@ -1,28 +1,24 @@
-export function createInfoPanel() {
+export function createInfoPanel(){
 
-    const panel =
-        document.createElement('div');
+const panel =
+document.createElement(
+'div'
+);
 
-    panel.className =
-        'info-panel';
+panel.className =
+'info-panel';
 
-    panel.innerHTML = `
-        <h2>Grupo The Smims</h2>
+panel.innerHTML=
+`
+<h3>Treliça Howe</h3>
 
-        <p>Montantes (Verticais)</p>
-        <p>Diagonais (Compressão)</p>
-        <p>Cordas Superior e Inferior</p>
-        <p>Nós (Conexões)</p>
+<p>Estrutura 3D</p>
 
-        <hr>
+<p>Ensaio com balde</p>
+`;
 
-        <p>Vão: 20m</p>
-        <p>Altura: 4m</p>
-        <p>Painéis: 8</p>
-        <p>Material: Aço</p>
-    `;
+document.body.append(
+panel
+);
 
-    document.body.appendChild(
-        panel
-    );
 }
