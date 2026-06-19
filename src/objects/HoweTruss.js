@@ -7,7 +7,7 @@ import * as THREE from 'three';
  *   h1= 3.000, h2=6.809, h3=10.241, h4=6.764, h5=3.000  cm
  */
 
-export const TRUSS_SCALE = 0.5;   // exportado para que supports.js possa usar
+export const TRUSS_SCALE = 0.5;
 export const TRUSS_DEPTH = 3.0;
 
 const SCALE = TRUSS_SCALE;
@@ -16,17 +16,27 @@ const DEPTH = TRUSS_DEPTH;
 const P = [10.900, 9.129, 9.177, 10.795];
 const H = [3.000, 6.809, 10.241, 6.764, 3.000];
 
-// Raios proporcionais à escala (palito real ≈ 0.2cm de espessura → 0.1cm de raio)
-// 0.1cm × SCALE = 0.05 unidades por palito
 const R1 = 0.10;   // 1 palito
-const R2 = 0.14;   // 2 palitos (≈ R1 × √2)
+const R2 = 0.14;   // 2 palitos
 
-// Geometria derivada — exportada para posicionar os apoios corretamente
-const xE   = P[0] + P[1] + P[2] + P[3];   // 40.001 cm
+const xE   = P[0] + P[1] + P[2] + P[3];
 const xMid = xE / 2;
 
-export const TRUSS_HALF_SPAN = xMid * SCALE;   // ≈ 10 unidades
-export const TRUSS_BASE_Y    = 3.0;             // group.position.y
+export const TRUSS_HALF_SPAN = xMid * SCALE;
+export const TRUSS_BASE_Y    = 3.0;
+
+// ── Estágios da animação de carga do balde ─────────────────────────────────
+// 6 estágios: peso sobe de 3 em 3 kg (3,6,9,12,15,18), escala visual do
+// balde sobe de 1/4x (estágio 0, antes de qualquer peso) até 6x (estágio 6).
+export const LOAD_STAGES = [
+  { kg: 0,  scale: 0.25 },  // estado inicial: balde vazio, 4x menor
+  { kg: 3,  scale: 1.40 },
+  { kg: 6,  scale: 2.55 },
+  { kg: 9,  scale: 3.70 },
+  { kg: 12, scale: 4.85 },
+  { kg: 15, scale: 5.425 },
+  { kg: 18, scale: 6.00 },  // estágio final: 6x maior
+];
 
 export function createHoweTruss() {
   const group = new THREE.Group();
@@ -80,8 +90,8 @@ export function createHoweTruss() {
 
     // Barras superiores (compressão, 2 palitos)
     bar(F(z),  G(z),  R2);
-    bar(G(z),  Hh(z), R2);
-    bar(Hh(z), I(z),  R2);
+    // bar(G(z),  Hh(z), R2);  ← REMOVIDA: tirava o pico H, substituída pela diagonal G-I
+    // bar(Hh(z), I(z),  R2);  ← REMOVIDA: idem
     bar(I(z),  J(z),  R2);
 
     // Verticais externas (compressão, 1 palito)
@@ -90,7 +100,7 @@ export function createHoweTruss() {
 
     // Verticais internas (compressão, 1 palito)
     bar(G(z),  B(z));
-    bar(Hh(z), C(z));
+    // bar(Hh(z), C(z));  ← REMOVIDA: H não tem mais ligação com o banzo superior
     bar(I(z),  D(z));
 
     // Diagonais (tração, 1 palito)
@@ -98,6 +108,9 @@ export function createHoweTruss() {
     bar(G(z), C(z));
     bar(I(z), C(z));
     bar(J(z), D(z));
+
+    // Diagonal cruzada do losango central — liga G a I, cruzando H-C no meio
+    bar(G(z), I(z));
   }
 
   buildFace(-DEPTH / 2);
@@ -105,10 +118,13 @@ export function createHoweTruss() {
 
   // Longarinas transversais
   [A, B, C, D, E].forEach(n => bar(n(-DEPTH / 2), n(DEPTH / 2)));
-  [F, G, Hh, I, J].forEach(n => bar(n(-DEPTH / 2), n(DEPTH / 2), R2));
+  [F, G, I, J].forEach(n => bar(n(-DEPTH / 2), n(DEPTH / 2), R2));
 
-  // Balde no nó C
-  const cPos   = pt(xC, 0, 0);
+  // Balde no nó C — geometria de referência criada no tamanho "1x" (padrão).
+  // A escala real aplicada (1/4x a 6x) é controlada de fora via bucket.scale,
+  // e o bucket.userData guarda o ponto de ancoragem (topo da corda) para que
+  // o crescimento aconteça "para baixo", mantendo o topo fixo na corda.
+  const cPos    = pt(xC, 0, 0);
   const ropeLen = 1.2;
 
   const rope = new THREE.Mesh(
@@ -118,13 +134,33 @@ export function createHoweTruss() {
   rope.position.set(cPos[0], cPos[1] - ropeLen / 2, 0);
   group.add(rope);
 
+  // Grupo-pivô: a âncora (ponto onde a corda termina) fica na origem do pivô,
+  // e o balde fica deslocado para baixo dentro dele. Assim, escalar o PIVÔ
+  // (não o bucket direto) faz o balde crescer para baixo a partir do topo.
+  const bucketAnchorY = cPos[1] - ropeLen; // ponto onde a corda termina
+
+  const bucketPivot = new THREE.Group();
+  bucketPivot.position.set(cPos[0], bucketAnchorY, 0);
+
+  const BUCKET_TOP_R    = 1.4;
+  const BUCKET_BOTTOM_R = 1.0;
+  const BUCKET_HEIGHT   = 2.2;
+
   const bucket = new THREE.Mesh(
-    new THREE.CylinderGeometry(1.4, 1.0, 2.2, 20),
+    new THREE.CylinderGeometry(BUCKET_TOP_R, BUCKET_BOTTOM_R, BUCKET_HEIGHT, 20),
     buckMat
   );
-  bucket.position.set(cPos[0], cPos[1] - ropeLen - 1.1, 0);
-  group.add(bucket);
+  // Desloca o balde para baixo dentro do pivô, de forma que o topo do
+  // balde toque o ponto de ancoragem (y=0 local)
+  bucket.position.set(0, -BUCKET_HEIGHT / 2, 0);
+  bucketPivot.add(bucket);
+  group.add(bucketPivot);
 
-  group.position.y = 3.0;
+  group.position.y = TRUSS_BASE_Y;
+
+  // Expõe o pivô do balde para que o SceneManager possa escalá-lo
+  // dinamicamente durante a animação de carga.
+  group.userData.bucketPivot = bucketPivot;
+
   return group;
 }
