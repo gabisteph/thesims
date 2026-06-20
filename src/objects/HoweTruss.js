@@ -30,12 +30,12 @@ export const TRUSS_BASE_Y    = 3.0;
 // balde sobe de 1/4x (estágio 0, antes de qualquer peso) até 6x (estágio 6).
 export const LOAD_STAGES = [
   { kg: 0,  scale: 0.25 },  // estado inicial: balde vazio, 4x menor
-  { kg: 3,  scale: 1.40 },
-  { kg: 6,  scale: 2.55 },
-  { kg: 9,  scale: 3.70 },
-  { kg: 12, scale: 4.85 },
-  { kg: 15, scale: 5.425 },
-  { kg: 18, scale: 6.00 },  // estágio final: 6x maior
+  { kg: 3,  scale: 0.25 },
+  { kg: 6,  scale: 0.75 },
+  { kg: 9,  scale: 1.25 },
+  { kg: 12, scale: 1.75 },
+  { kg: 15, scale: 2.25 },
+  { kg: 18, scale: 2.75 },  // estágio final: crescimento sutil, +0.5x por estágio
 ];
 
 export function createHoweTruss() {
@@ -70,7 +70,7 @@ export function createHoweTruss() {
     const end   = new THREE.Vector3(...b);
     const dir   = new THREE.Vector3().subVectors(end, start);
     const len   = dir.length();
-    if (len < 1e-6) return;
+    if (len < 1e-6) return null;
 
     const mesh = new THREE.Mesh(
       new THREE.CylinderGeometry(radius, radius, len, 10),
@@ -79,12 +79,72 @@ export function createHoweTruss() {
     mesh.position.copy(start).lerp(end, 0.5);
     mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
     group.add(mesh);
+    return mesh;
   }
 
-  function buildFace(z) {
+  // ── Barra fraturável B-C ──────────────────────────────────────────────────
+  // Em vez de uma mesh única, B-C é modelada como duas meias-barras, cada
+  // uma dentro de um PIVÔ posicionado na extremidade que permanece fixa
+  // (B para a metade esquerda, C para a metade direita). Assim, ao girar
+  // o pivô, a ponta SOLTA (a do meio, onde ocorre a fratura) cai para
+  // baixo como uma dobradiça quebrando — em vez de girar em torno do
+  // próprio centro da barra, o que dava a impressão de subir.
+  function breakableBar(a, b, radius = R1, mat = woodMat) {
+    const start = new THREE.Vector3(...a); // extremidade fixa da metade A (ex: B)
+    const end   = new THREE.Vector3(...b); // extremidade fixa da metade B (ex: C)
+    const mid   = new THREE.Vector3().addVectors(start, end).multiplyScalar(0.5);
+
+    const halfLen = start.distanceTo(mid);
+
+    // Pivô A: ancorado em `start`, a barra desenhada de (0,0,0) até o vetor
+    // local que aponta para `mid`. Rotacionar este pivô faz a ponta em
+    // `mid` (a fratura) se mover, mantendo `start` fixo.
+    const pivotA = new THREE.Group();
+    pivotA.position.copy(start);
+    const dirA = new THREE.Vector3().subVectors(mid, start);
+    const meshA = new THREE.Mesh(
+      new THREE.CylinderGeometry(radius, radius, halfLen, 10),
+      mat
+    );
+    meshA.position.copy(dirA).multiplyScalar(0.5);
+    meshA.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dirA.clone().normalize());
+    pivotA.add(meshA);
+    group.add(pivotA);
+
+    // Pivô B: ancorado em `end`, simétrico ao pivô A
+    const pivotB = new THREE.Group();
+    pivotB.position.copy(end);
+    const dirB = new THREE.Vector3().subVectors(mid, end);
+    const meshB = new THREE.Mesh(
+      new THREE.CylinderGeometry(radius, radius, halfLen, 10),
+      mat
+    );
+    meshB.position.copy(dirB).multiplyScalar(0.5);
+    meshB.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dirB.clone().normalize());
+    pivotB.add(meshB);
+    group.add(pivotB);
+
+    // halfA/halfB expostos para a animação agora são os PIVÔS (não as meshes),
+    // já que é o pivô que precisa rotacionar para a queda parecer correta.
+    return { halfA: pivotA, halfB: pivotB };
+  }
+
+  // Guarda as duas metades fraturáveis da barra C-D, em ambas as faces
+  // (frente e fundo), para que o SceneManager possa animá-las na ruptura.
+  const breakableHalves = [];
+
+  function buildFace(z, breakable) {
     // Banzo inferior (tração, 1 palito)
     bar(A(z), B(z));
-    bar(B(z), C(z));
+
+    // A barra B-C só é fraturável na face marcada como `breakable`;
+    // a outra face mantém a barra inteira (treliça não se desmonta dos dois lados)
+    if (breakable) {
+      breakableHalves.push(breakableBar(B(z), C(z)));
+    } else {
+      bar(B(z), C(z));
+    }
+
     bar(C(z), D(z));
     bar(D(z), E(z));
 
@@ -113,8 +173,10 @@ export function createHoweTruss() {
     bar(G(z), I(z));
   }
 
-  buildFace(-DEPTH / 2);
-  buildFace( DEPTH / 2);
+  // Só a face frontal (z negativo) sofre a ruptura — a traseira mantém
+  // a barra C-D inteira, como pedido (quebra de um lado só).
+  buildFace(-DEPTH / 2, true);
+  buildFace( DEPTH / 2, false);
 
   // Longarinas transversais
   [A, B, C, D, E].forEach(n => bar(n(-DEPTH / 2), n(DEPTH / 2)));
@@ -156,11 +218,147 @@ export function createHoweTruss() {
   bucketPivot.add(bucket);
   group.add(bucketPivot);
 
+  // Escala inicial: balde começa em 1/4x (4 vezes menor que o tamanho de referência)
+  bucketPivot.scale.setScalar(0.25);
+
   group.position.y = TRUSS_BASE_Y;
 
   // Expõe o pivô do balde para que o SceneManager possa escalá-lo
   // dinamicamente durante a animação de carga.
   group.userData.bucketPivot = bucketPivot;
 
+  // Expõe a corda e as metades fraturáveis de C-D para a animação de ruptura.
+  group.userData.rope = rope;
+  group.userData.breakableHalves = breakableHalves; // [{halfA, halfB}, {halfA, halfB}]
+
   return group;
+}
+
+/**
+ * Anima a ruptura da barra C-D e a queda do balde com gravidade simples.
+ *
+ * @param trussGroup  o grupo retornado por createHoweTruss()
+ * @param onComplete  callback chamado quando o balde toca o chão (opcional)
+ * @returns função update(deltaSeconds) a ser chamada a cada frame; retorna
+ *          true enquanto a animação está em andamento, false quando termina.
+ */
+export function breakTruss(trussGroup, onComplete) {
+  const { bucketPivot, rope, breakableHalves } = trussGroup.userData;
+
+  // ── Fase 1: separação da fratura ────────────────────────────────────────────
+  const breakRotationSpeed = 1.2; // rad/s, só durante a fase 1
+  const BREAK_DURATION = 0.4;     // segundos de "abertura" da fratura
+
+  // ── Fase 2: queda do balde com gravidade ────────────────────────────────────
+  const GRAVITY = -30; // unidades/s²
+  let velocityY = 0;
+
+  // ── Fase 3: submersão no Rio Negro ──────────────────────────────────────────
+  // Em coordenadas locais do trussGroup, o nível da água (y=0 na cena)
+  // corresponde a y = -TRUSS_BASE_Y, já que o grupo inteiro está deslocado
+  // verticalmente por TRUSS_BASE_Y.
+  const waterYLocal     = -TRUSS_BASE_Y;
+  const SINK_DEPTH       = 3.5;   // quanto o balde desce dentro da água antes de desaparecer
+  const SINK_DURATION    = 1.2;   // segundos para descer essa profundidade e sumir
+  let sinkElapsed = 0;
+  let sinkStartY  = 0;
+  let sinkStartRopeY = 0;
+
+  // Materiais do balde/corda, para aplicar fade-out (precisam suportar transparência)
+  function enableTransparency(obj) {
+    if (!obj) return;
+    obj.traverse?.((child) => {
+      if (child.material) {
+        child.material.transparent = true;
+      }
+    });
+    if (obj.material) obj.material.transparent = true;
+  }
+
+  function setOpacity(obj, value) {
+    if (!obj) return;
+    if (obj.material) obj.material.opacity = value;
+    obj.traverse?.((child) => {
+      if (child.material) child.material.opacity = value;
+    });
+  }
+
+  let elapsed = 0;
+  let phase = 'breaking'; // 'breaking' -> 'falling' -> 'sinking' -> 'done'
+
+  function update(dt) {
+    elapsed += dt;
+
+    if (phase === 'breaking') {
+      // halfA é o pivô ancorado em B (extremidade esquerda fixa); sua ponta
+      // solta (em C) precisa cair para baixo → rotação NEGATIVA em Z faz
+      // a ponta que está à direita do pivô descer.
+      // halfB é o pivô ancorado em C (extremidade direita fixa); sua ponta
+      // solta (em B) também precisa cair para baixo → rotação POSITIVA em Z,
+      // já que a ponta está à esquerda do pivô.
+      breakableHalves.forEach(({ halfA, halfB }) => {
+        if (halfA) halfA.rotation.z -= breakRotationSpeed * dt;
+        if (halfB) halfB.rotation.z += breakRotationSpeed * dt;
+      });
+
+      if (elapsed >= BREAK_DURATION) {
+        phase = 'falling';
+      }
+      return true;
+    }
+
+    if (phase === 'falling') {
+      // Gravidade simples: v += g*dt; posição += v*dt
+      velocityY += GRAVITY * dt;
+
+      const dy = velocityY * dt;
+      if (rope) rope.position.y += dy;
+      if (bucketPivot) bucketPivot.position.y += dy;
+
+      // Verifica se o balde tocou a superfície da água
+      const pivotY = bucketPivot ? bucketPivot.position.y : Infinity;
+      if (pivotY <= waterYLocal) {
+        // Encosta exatamente na superfície da água antes de começar a submergir
+        const correction = waterYLocal - pivotY;
+        if (rope) rope.position.y += correction;
+        if (bucketPivot) bucketPivot.position.y += correction;
+
+        enableTransparency(rope);
+        enableTransparency(bucketPivot);
+
+        sinkStartY      = bucketPivot ? bucketPivot.position.y : waterYLocal;
+        sinkStartRopeY  = rope ? rope.position.y : waterYLocal;
+        sinkElapsed     = 0;
+        phase = 'sinking';
+      }
+      return true;
+    }
+
+    if (phase === 'sinking') {
+      sinkElapsed += dt;
+      const t = Math.min(sinkElapsed / SINK_DURATION, 1);
+
+      // Desce suavemente (ease-out) enquanto desaparece
+      const eased = 1 - Math.pow(1 - t, 2);
+      const offset = -SINK_DEPTH * eased; // deslocamento negativo (para baixo)
+
+      if (bucketPivot) bucketPivot.position.y = sinkStartY + offset;
+      if (rope) rope.position.y = sinkStartRopeY + offset;
+
+      const opacity = 1 - t; // fade-out linear até 0
+      setOpacity(rope, opacity);
+      setOpacity(bucketPivot, opacity);
+
+      if (t >= 1) {
+        phase = 'done';
+        if (onComplete) onComplete();
+        return false;
+      }
+      return true;
+    }
+
+    return false;
+  }
+
+  return update;
 }
