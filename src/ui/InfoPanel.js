@@ -4,9 +4,10 @@ export function createInfoPanel() {
   panel.innerHTML = `
     <h3>Equipe The Sims</h3>
     <p>Estrutura 3D da treliça</p>
-    <p>Ensaio com peso</p>
-    <p style="font-weight:bold;">- Carga Inicial: 4 kg</p>
-    <p id="weight-display" style="font-weight:bold; margin-top:8px;">Carga: 0 kg</p>
+    <p>Massa da Treliça: 122g</p>
+    <h4>Ensaio com peso</h4>
+    <p>Carga Inicial: 0</p>
+    <p id="weight-display" style="margin-top:8px;">Carga: 0 kg</p>
   `;
   document.body.append(panel);
 }
@@ -18,6 +19,6 @@ export function createInfoPanel() {
 export function updateWeightDisplay(kg) {
   const el = document.getElementById('weight-display');
   if (el) {
-    el.textContent = ` - Carga Atual: ${kg} kg`;
+    el.textContent = `Carga Atual ≈ ${kg} kg`;
   }
 }

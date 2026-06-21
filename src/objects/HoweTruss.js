@@ -30,12 +30,12 @@ export const TRUSS_BASE_Y    = 3.0;
 // balde sobe de 1/4x (estágio 0, antes de qualquer peso) até 6x (estágio 6).
 export const LOAD_STAGES = [
   { kg: 0,  scale: 0.25 },  // estado inicial: balde vazio, 4x menor
-  { kg: 3,  scale: 0.25 },
-  { kg: 6,  scale: 0.75 },
-  { kg: 9,  scale: 1.25 },
-  { kg: 12, scale: 1.75 },
-  { kg: 15, scale: 2.25 },
-  { kg: 18, scale: 2.75 },  // estágio final: crescimento sutil, +0.5x por estágio
+  { kg: 7,  scale: 0.25 },
+  { kg: 14,  scale: 0.75 },
+  { kg: 21,  scale: 1.25 },
+  { kg: 28, scale: 1.75 },
+  { kg: 35, scale: 2.25 },
+  { kg: 42, scale: 2.75 },  // estágio final: crescimento sutil, +0.5x por estágio
 ];
 
 export function createHoweTruss() {
